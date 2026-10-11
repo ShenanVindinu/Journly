@@ -68,9 +68,9 @@ public class MainActivity extends AppCompatActivity {
         adapter = new MessageAdapter(new MessageAdapter.Listener() {
             @Override
             public void onMessageClick(Message message) {
-                // Opens the detail screen in Step 7
-                Toast.makeText(MainActivity.this, "Open message (Step 7)",
-                        Toast.LENGTH_SHORT).show();
+                Intent intent = new Intent(MainActivity.this, MessageDetailActivity.class);
+                intent.putExtra(MessageEditActivity.EXTRA_MESSAGE_ID, message.getId());
+                startActivity(intent);
             }
 
             @Override
