@@ -100,13 +100,8 @@ public class MainActivity extends AppCompatActivity {
 
         buttonProfile.setOnClickListener(v -> confirmLogout());
 
-        // TEMPORARY: adds a test message so we can see the list. Replaced in Step 6.
-        fabAdd.setOnClickListener(v -> {
-            Message m = new Message(userId,
-                    "Test message " + (System.currentTimeMillis() % 1000), null);
-            dbHelper.insertMessage(m);
-            loadMessages();
-        });
+        fabAdd.setOnClickListener(v ->
+                startActivity(new Intent(this, MessageEditActivity.class)));
     }
 
     // Reload when we come back from another screen
