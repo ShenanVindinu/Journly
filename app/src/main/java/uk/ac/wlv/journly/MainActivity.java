@@ -9,6 +9,7 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
@@ -20,6 +21,8 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -29,6 +32,13 @@ public class MainActivity extends AppCompatActivity {
     private MessageAdapter adapter;
     private TextInputEditText editSearch;
     private TextView textEmpty;
+    private TextView textTitle;
+    private ImageButton buttonProfile;
+    private ImageButton buttonCloseSelection;
+    private ImageButton buttonUploadSelected;
+    private ImageButton buttonDeleteSelected;
+    private FloatingActionButton fabAdd;
+    private OnBackPressedCallback selectionBackCallback;
     private long userId;
 
     @Override
@@ -58,9 +68,22 @@ public class MainActivity extends AppCompatActivity {
         });
 
         textEmpty = findViewById(R.id.textEmpty);
+        textTitle = findViewById(R.id.textTitle);
         editSearch = findViewById(R.id.editSearch);
-        ImageButton buttonProfile = findViewById(R.id.buttonProfile);
-        FloatingActionButton fabAdd = findViewById(R.id.fabAdd);
+        buttonProfile = findViewById(R.id.buttonProfile);
+        buttonCloseSelection = findViewById(R.id.buttonCloseSelection);
+        buttonUploadSelected = findViewById(R.id.buttonUploadSelected);
+        buttonDeleteSelected = findViewById(R.id.buttonDeleteSelected);
+        fabAdd = findViewById(R.id.fabAdd);
+
+        // While selecting, the Back button leaves selection mode instead of closing the app
+        selectionBackCallback = new OnBackPressedCallback(false) {
+            @Override
+            public void handleOnBackPressed() {
+                adapter.clearSelection();
+            }
+        };
+        getOnBackPressedDispatcher().addCallback(this, selectionBackCallback);
 
         // The list
         RecyclerView recycler = findViewById(R.id.recyclerMessages);
@@ -74,10 +97,8 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onMessageLongClick(Message message) {
-                // Selection mode for group delete comes in Step 8
-                Toast.makeText(MainActivity.this, "Select mode (Step 8)",
-                        Toast.LENGTH_SHORT).show();
+            public void onSelectionChanged(int selectedCount) {
+                updateSelectionUi(selectedCount);
             }
         });
         recycler.setAdapter(adapter);
@@ -99,9 +120,14 @@ public class MainActivity extends AppCompatActivity {
         });
 
         buttonProfile.setOnClickListener(v -> confirmLogout());
-
         fabAdd.setOnClickListener(v ->
                 startActivity(new Intent(this, MessageEditActivity.class)));
+
+        buttonCloseSelection.setOnClickListener(v -> adapter.clearSelection());
+        buttonDeleteSelected.setOnClickListener(v -> confirmDeleteSelected());
+        // TEMPORARY: group upload is built after the single upload works
+        buttonUploadSelected.setOnClickListener(v -> Toast.makeText(this,
+                "Group upload comes later", Toast.LENGTH_SHORT).show());
     }
 
     // Reload when we come back from another screen
@@ -128,6 +154,59 @@ public class MainActivity extends AppCompatActivity {
                 ? "No messages yet. Tap + to write one."
                 : "No messages match your search.");
         textEmpty.setVisibility(list.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    // Switch the header between normal mode and selection mode
+    private void updateSelectionUi(int count) {
+        boolean selecting = count > 0;
+
+        selectionBackCallback.setEnabled(selecting);
+        textTitle.setText(selecting ? count + " selected" : "Journly");
+        buttonCloseSelection.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        buttonUploadSelected.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        buttonDeleteSelected.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        buttonProfile.setVisibility(selecting ? View.GONE : View.VISIBLE);
+
+        if (selecting) {
+            fabAdd.hide();
+        } else {
+            fabAdd.show();
+        }
+    }
+
+    // Ask before deleting the selected group
+    private void confirmDeleteSelected() {
+        List<Message> selected = adapter.getSelectedMessages();
+        int count = selected.size();
+        if (count == 0) {
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Delete " + count + (count == 1 ? " message" : " messages"))
+                .setMessage("This cannot be undone.")
+                .setPositiveButton("Delete", (dialog, which) -> deleteMessages(selected))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void deleteMessages(List<Message> selected) {
+        List<Long> ids = new ArrayList<>();
+        for (Message m : selected) {
+            ids.add(m.getId());
+        }
+
+        // Delete from the database first, then remove the photo files
+        if (dbHelper.deleteMessages(ids)) {
+            for (Message m : selected) {
+                String path = m.getImagePath();
+                if (path != null) {
+                    new File(path).delete();
+                }
+            }
+            Toast.makeText(this, ids.size() + " deleted", Toast.LENGTH_SHORT).show();
+        }
+        loadMessages();
     }
 
     private void confirmLogout() {

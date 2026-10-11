@@ -1,5 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
+}
+
+// Read the secret keys from local.properties (this file is not committed to GitHub)
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -16,6 +26,14 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "TUMBLR_CLIENT_ID",
+            "\"${localProps.getProperty("TUMBLR_CLIENT_ID", "")}\"")
+        buildConfigField("String", "TUMBLR_CLIENT_SECRET",
+            "\"${localProps.getProperty("TUMBLR_CLIENT_SECRET", "")}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

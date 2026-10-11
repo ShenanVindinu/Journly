@@ -95,6 +95,18 @@
                 android:layout_marginTop="16dp"
                 android:textColor="#5F5F5F"
                 android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/textUploaded"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:text="Published on Tumblr. Tap to view."
+                android:textColor="#1B5E20"
+                android:textStyle="bold"
+                android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
 
@@ -125,7 +137,7 @@
             android:drawableStart="@drawable/ic_upload"
             android:drawablePadding="8dp"
             android:drawableTint="@color/journly_text"
-            android:text="Upload to Imgur"
+            android:text="Upload to Tumblr"
             android:textColor="@color/journly_text"
             android:textSize="18sp" />
     </LinearLayout>

@@ -1,5 +1,6 @@
 package uk.ac.wlv.journly;
 
+import android.graphics.Color;
 import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -10,22 +11,28 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.card.MaterialCardView;
+
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.ViewHolder> {
 
-    // The screen implements this to react to taps on a card
+    // The screen implements this to react to the adapter
     public interface Listener {
-        void onMessageClick(Message message);
-        void onMessageLongClick(Message message);
+        void onMessageClick(Message message);          // normal tap
+        void onSelectionChanged(int selectedCount);    // selection grew or shrank
     }
 
     private final List<Message> messages = new ArrayList<>();
+    // Ids of the selected messages. Selection mode is on while this is not empty.
+    private final Set<Long> selectedIds = new LinkedHashSet<>();
     private final Listener listener;
     private final SimpleDateFormat timeFormat =
             new SimpleDateFormat("d MMM, h:mm a", Locale.getDefault());
@@ -34,11 +41,45 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.ViewHold
         this.listener = listener;
     }
 
-    // Replace the list contents and redraw
+    // Replace the list contents and redraw. Any selection is cleared.
     public void setMessages(List<Message> newMessages) {
         messages.clear();
         messages.addAll(newMessages);
+        selectedIds.clear();
         notifyDataSetChanged();
+        listener.onSelectionChanged(0);
+    }
+
+    public int getSelectedCount() {
+        return selectedIds.size();
+    }
+
+    // The full Message objects that are selected
+    public List<Message> getSelectedMessages() {
+        List<Message> result = new ArrayList<>();
+        for (Message m : messages) {
+            if (selectedIds.contains(m.getId())) {
+                result.add(m);
+            }
+        }
+        return result;
+    }
+
+    public void clearSelection() {
+        selectedIds.clear();
+        notifyDataSetChanged();
+        listener.onSelectionChanged(0);
+    }
+
+    // Add the message to the selection, or remove it if it is already there
+    private void toggleSelection(Message m, int position) {
+        if (!selectedIds.remove(m.getId())) {
+            selectedIds.add(m.getId());
+        }
+        if (position != RecyclerView.NO_POSITION) {
+            notifyItemChanged(position);
+        }
+        listener.onSelectionChanged(selectedIds.size());
     }
 
     @NonNull
@@ -65,9 +106,26 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.ViewHold
             holder.imageThumb.setVisibility(View.GONE);
         }
 
-        holder.itemView.setOnClickListener(v -> listener.onMessageClick(m));
+        // Selected cards get a light blue background and a tick
+        boolean selected = selectedIds.contains(m.getId());
+        holder.card.setCardBackgroundColor(
+                Color.parseColor(selected ? "#D9F3F7" : "#FFFFFF"));
+        holder.imageCheck.setVisibility(selected ? View.VISIBLE : View.GONE);
+
+        // While selecting, a tap toggles the card. Otherwise it opens the message.
+        holder.itemView.setOnClickListener(v -> {
+            if (!selectedIds.isEmpty()) {
+                toggleSelection(m, holder.getBindingAdapterPosition());
+            } else {
+                listener.onMessageClick(m);
+            }
+        });
+
+        // A long press starts selection mode
         holder.itemView.setOnLongClickListener(v -> {
-            listener.onMessageLongClick(m);
+            if (selectedIds.isEmpty()) {
+                toggleSelection(m, holder.getBindingAdapterPosition());
+            }
             return true;
         });
     }
@@ -79,15 +137,19 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.ViewHold
 
     // Holds the views of one card so they are not looked up again and again
     static class ViewHolder extends RecyclerView.ViewHolder {
+        final MaterialCardView card;
         final TextView textContent;
         final TextView textTime;
         final ImageView imageThumb;
+        final ImageView imageCheck;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
+            card = (MaterialCardView) itemView;
             textContent = itemView.findViewById(R.id.textContent);
             textTime = itemView.findViewById(R.id.textTime);
             imageThumb = itemView.findViewById(R.id.imageThumb);
+            imageCheck = itemView.findViewById(R.id.imageCheck);
         }
     }
 }

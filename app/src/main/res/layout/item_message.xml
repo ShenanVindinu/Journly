@@ -53,5 +53,16 @@
                 android:textColor="#5F5F5F"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <!-- Tick shown while the message is selected -->
+        <ImageView
+            android:id="@+id/imageCheck"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="12dp"
+            android:contentDescription="Selected"
+            android:src="@drawable/ic_check_circle"
+            android:visibility="gone"
+            app:tint="@color/journly_green" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
