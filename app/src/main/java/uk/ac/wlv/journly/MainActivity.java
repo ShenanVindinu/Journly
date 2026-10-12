@@ -10,6 +10,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
@@ -22,8 +24,12 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -40,6 +46,22 @@ public class MainActivity extends AppCompatActivity {
     private FloatingActionButton fabAdd;
     private OnBackPressedCallback selectionBackCallback;
     private long userId;
+
+    // Group upload: the messages waiting to be published, and how many were skipped
+    private List<Message> pendingUpload;
+    private int skippedCount;
+
+    // Network work runs on this background thread
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    // After the user connects Tumblr, carry straight on with the group upload
+    private final ActivityResultLauncher<Intent> connectLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    result -> {
+                        if (result.getResultCode() == RESULT_OK && pendingUpload != null) {
+                            confirmGroupUpload();
+                        }
+                    });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -125,9 +147,7 @@ public class MainActivity extends AppCompatActivity {
 
         buttonCloseSelection.setOnClickListener(v -> adapter.clearSelection());
         buttonDeleteSelected.setOnClickListener(v -> confirmDeleteSelected());
-        // TEMPORARY: group upload is built after the single upload works
-        buttonUploadSelected.setOnClickListener(v -> Toast.makeText(this,
-                "Group upload comes later", Toast.LENGTH_SHORT).show());
+        buttonUploadSelected.setOnClickListener(v -> startGroupUpload());
     }
 
     // Reload when we come back from another screen
@@ -137,6 +157,12 @@ public class MainActivity extends AppCompatActivity {
         if (dbHelper != null) {
             loadMessages();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        executor.shutdown(); // lets a running upload finish
+        super.onDestroy();
     }
 
     // Load all messages, or only the matching ones if the search box has text
@@ -173,6 +199,140 @@ public class MainActivity extends AppCompatActivity {
             fabAdd.show();
         }
     }
+
+    // ---------- Group upload to Tumblr ----------
+
+    private void startGroupUpload() {
+        List<Message> selected = adapter.getSelectedMessages();
+        if (selected.isEmpty()) {
+            return;
+        }
+
+        // Skip messages that are already published, so Tumblr gets no duplicates
+        List<Message> toUpload = new ArrayList<>();
+        for (Message m : selected) {
+            if (!m.isUploaded()) {
+                toUpload.add(m);
+            }
+        }
+        skippedCount = selected.size() - toUpload.size();
+
+        if (toUpload.isEmpty()) {
+            Toast.makeText(this, "These messages are already published",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        pendingUpload = toUpload;
+        if (!new TumblrAuth(this).isConnected()) {
+            connectLauncher.launch(new Intent(this, ConnectTumblrActivity.class));
+        } else {
+            confirmGroupUpload();
+        }
+    }
+
+    // Publishing is public, so always ask first
+    private void confirmGroupUpload() {
+        if (pendingUpload == null || pendingUpload.isEmpty()) {
+            return;
+        }
+        final List<Message> toUpload = pendingUpload;
+        int count = toUpload.size();
+
+        String text = "They will be published on your Tumblr blog, "
+                + "and anyone can see them.";
+        if (skippedCount > 0) {
+            text += "\n\n" + skippedCount + " already published, skipped.";
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Publish " + count + (count == 1 ? " message" : " messages"))
+                .setMessage(text)
+                .setPositiveButton("Publish", (dialog, which) -> doGroupUpload(toUpload))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void doGroupUpload(List<Message> messages) {
+        pendingUpload = null;
+
+        // Oldest first, so the newest message ends up on top of the blog
+        final List<Message> ordered = new ArrayList<>(messages);
+        Collections.reverse(ordered);
+
+        final AlertDialog progressDialog = new AlertDialog.Builder(this)
+                .setTitle("Publishing to Tumblr")
+                .setMessage("Starting...")
+                .setCancelable(false)
+                .show();
+
+        executor.execute(() -> {
+            int done = 0;
+            String problem = null;
+            boolean needsLogin = false;
+
+            try {
+                TumblrUploader uploader = new TumblrUploader(this);
+                String token = uploader.getToken();
+                String blog = uploader.getBlogName(token);
+
+                for (int i = 0; i < ordered.size(); i++) {
+                    final int number = i + 1;
+                    runOnUiThread(() -> progressDialog.setMessage(
+                            "Uploading " + number + " of " + ordered.size() + "..."));
+
+                    Message m = ordered.get(i);
+                    try {
+                        String url = uploader.createPost(token, blog, m);
+                        // Remember that it was published, and where
+                        m.setUploaded(true);
+                        m.setUploadedUrl(url);
+                        dbHelper.updateMessage(m);
+                        done++;
+                    } catch (TumblrUploader.UploadException e) {
+                        problem = e.getMessage(); // skip this one, try the next
+                    }
+                }
+            } catch (TumblrUploader.NeedsLoginException e) {
+                needsLogin = true;
+            } catch (IOException e) {
+                problem = "No internet connection";
+            } catch (Exception e) {
+                problem = "Upload failed";
+            }
+
+            final int finalDone = done;
+            final String finalProblem = problem;
+            final boolean finalNeedsLogin = needsLogin;
+
+            runOnUiThread(() -> {
+                progressDialog.dismiss();
+                loadMessages(); // also clears the selection
+
+                String result = finalDone + " of " + ordered.size()
+                        + " published on Tumblr";
+                if (finalProblem != null && finalDone < ordered.size()) {
+                    result += " (" + finalProblem + ")";
+                }
+                Toast.makeText(this, result, Toast.LENGTH_LONG).show();
+
+                // The login expired: connect again, then offer the rest
+                if (finalNeedsLogin) {
+                    pendingUpload = new ArrayList<>();
+                    for (Message m : ordered) {
+                        if (!m.isUploaded()) {
+                            pendingUpload.add(m);
+                        }
+                    }
+                    skippedCount = 0;
+                    connectLauncher.launch(
+                            new Intent(this, ConnectTumblrActivity.class));
+                }
+            });
+        });
+    }
+
+    // ---------- Delete ----------
 
     // Ask before deleting the selected group
     private void confirmDeleteSelected() {
