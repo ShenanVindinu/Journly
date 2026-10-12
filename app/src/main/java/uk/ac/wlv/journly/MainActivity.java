@@ -39,7 +39,7 @@ public class MainActivity extends AppCompatActivity {
     private TextInputEditText editSearch;
     private TextView textEmpty;
     private TextView textTitle;
-    private ImageButton buttonProfile;
+    private View buttonProfile;
     private ImageButton buttonCloseSelection;
     private ImageButton buttonUploadSelected;
     private ImageButton buttonDeleteSelected;
